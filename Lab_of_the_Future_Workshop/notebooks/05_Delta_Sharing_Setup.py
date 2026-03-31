@@ -126,14 +126,6 @@ print(f"Shares to create: {IMAGING_SHARE}, {ANALYTICS_SHARE}, {RESEARCH_SHARE}")
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC -- Add DICOM features to imaging share
-# MAGIC ALTER SHARE lab_future_imaging_share
-# MAGIC ADD TABLE lab_of_the_future.healthcare_data.dicom_features
-# MAGIC COMMENT 'Extracted image features including intensity statistics and texture metrics';
-
-# COMMAND ----------
-
-# MAGIC %sql
 # MAGIC -- Add image embeddings to imaging share
 # MAGIC ALTER SHARE lab_future_imaging_share
 # MAGIC ADD TABLE lab_of_the_future.healthcare_data.dicom_embeddings
@@ -188,29 +180,13 @@ print(f"Shares to create: {IMAGING_SHARE}, {ANALYTICS_SHARE}, {RESEARCH_SHARE}")
 # MAGIC CREATE OR REPLACE VIEW lab_of_the_future.healthcare_data.research_imaging_dataset AS
 # MAGIC SELECT 
 # MAGIC   -- Use hashed patient ID for de-identification
-# MAGIC   SHA2(m.patient_id, 256) as patient_hash,
-# MAGIC   m.modality,
-# MAGIC   m.body_part_examined,
-# MAGIC   -- Age range instead of exact birth date
-# MAGIC   CASE 
-# MAGIC     WHEN YEAR(current_date()) - YEAR(TO_DATE(m.patient_birth_date, 'yyyyMMdd')) < 30 THEN '18-29'
-# MAGIC     WHEN YEAR(current_date()) - YEAR(TO_DATE(m.patient_birth_date, 'yyyyMMdd')) < 50 THEN '30-49'
-# MAGIC     WHEN YEAR(current_date()) - YEAR(TO_DATE(m.patient_birth_date, 'yyyyMMdd')) < 70 THEN '50-69'
-# MAGIC     ELSE '70+'
-# MAGIC   END as age_range,
-# MAGIC   m.patient_sex,
-# MAGIC   m.manufacturer,
-# MAGIC   DATE(m.acquisition_datetime) as acquisition_date,
-# MAGIC   f.mean_intensity,
-# MAGIC   f.std_intensity,
-# MAGIC   f.histogram_entropy,
-# MAGIC   f.gradient_mean,
-# MAGIC   f.gradient_std,
-# MAGIC   f.edge_density,
-# MAGIC   f.quadrant_variance
-# MAGIC FROM lab_of_the_future.healthcare_data.dicom_metadata m
-# MAGIC LEFT JOIN lab_of_the_future.healthcare_data.dicom_features f
-# MAGIC   ON m.sop_instance_uid = f.file_name;
+# MAGIC   SHA2(patient_id, 256) as patient_hash,
+# MAGIC   modality,
+# MAGIC   study_description,
+# MAGIC   patient_sex,
+# MAGIC   manufacturer,
+# MAGIC   study_date
+# MAGIC FROM lab_of_the_future.healthcare_data.dicom_metadata;
 
 # COMMAND ----------
 
@@ -475,16 +451,13 @@ print(f"Shares to create: {IMAGING_SHARE}, {ANALYTICS_SHARE}, {RESEARCH_SHARE}")
 # MAGIC -- Create a view with volume file references
 # MAGIC CREATE OR REPLACE VIEW lab_of_the_future.healthcare_data.dicom_file_catalog AS
 # MAGIC SELECT 
-# MAGIC   f.file_path,
-# MAGIC   f.patient_id,
-# MAGIC   f.study_uid,
-# MAGIC   f.file_size_kb,
-# MAGIC   m.modality,
-# MAGIC   m.body_part_examined,
-# MAGIC   m.acquisition_datetime
-# MAGIC FROM lab_of_the_future.healthcare_data.dicom_features f
-# MAGIC LEFT JOIN lab_of_the_future.healthcare_data.dicom_metadata m
-# MAGIC   ON f.file_name = m.sop_instance_uid;
+# MAGIC   file_path,
+# MAGIC   patient_id,
+# MAGIC   study_instance_uid,
+# MAGIC   modality,
+# MAGIC   study_description,
+# MAGIC   study_date
+# MAGIC FROM lab_of_the_future.healthcare_data.dicom_metadata;
 
 # COMMAND ----------
 

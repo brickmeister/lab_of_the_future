@@ -195,17 +195,19 @@ EQUIPMENT = {
 def generate_synthetic_pixel_data(modality: str, rows: int, cols: int, instance_number: int = 1) -> bytes:
     """
     Generate synthetic pixel data that resembles real medical images.
+    Uses np.indices for proper 2D coordinate arrays.
     """
     np.random.seed(hash(f"{modality}-{instance_number}") % (2**32))
     
+    # Create 2D coordinate grids (y is row index, x is column index)
+    y, x = np.indices((rows, cols))
+    
     if modality == "CT":
         # CT images: Hounsfield units, typically -1000 (air) to +3000 (dense bone)
-        # Simulate cross-sectional anatomy
         base = np.random.normal(40, 15, (rows, cols)).astype(np.float32)
         
         # Add body outline (ellipse)
         cy, cx = rows // 2, cols // 2
-        y, x = np.ogrid[:rows, :cols]
         body_mask = ((x - cx) / (cols * 0.4))**2 + ((y - cy) / (rows * 0.35))**2 <= 1
         base[body_mask] += 40
         
@@ -230,7 +232,6 @@ def generate_synthetic_pixel_data(modality: str, rows: int, cols: int, instance_
         
         # Brain-like structure for head MRI
         cy, cx = rows // 2, cols // 2
-        y, x = np.ogrid[:rows, :cols]
         
         # Skull (dark ring)
         skull_outer = ((x - cx) / (cols * 0.42))**2 + ((y - cy) / (rows * 0.45))**2 <= 1
@@ -240,7 +241,9 @@ def generate_synthetic_pixel_data(modality: str, rows: int, cols: int, instance_
         
         # Brain tissue
         brain_mask = skull_inner
-        base[brain_mask] = np.random.normal(600, 80, size=brain_mask.sum())
+        num_brain_pixels = np.sum(brain_mask)
+        if num_brain_pixels > 0:
+            base[brain_mask] = np.random.normal(600, 80, size=num_brain_pixels)
         
         # Ventricles (CSF - bright on T2)
         vent_mask = ((x - cx) / 25)**2 + ((y - cy) / 15)**2 <= 1
@@ -254,17 +257,23 @@ def generate_synthetic_pixel_data(modality: str, rows: int, cols: int, instance_
         
         # Simulate chest X-ray
         cy, cx = rows // 2, cols // 2
-        y, x = np.ogrid[:rows, :cols]
         
         # Lung fields (darker = more air)
         lung_left = ((x - (cx - cols * 0.15)) / (cols * 0.2))**2 + ((y - cy) / (rows * 0.35))**2 <= 1
         lung_right = ((x - (cx + cols * 0.15)) / (cols * 0.2))**2 + ((y - cy) / (rows * 0.35))**2 <= 1
-        base[lung_left] = np.random.normal(2500, 200, size=lung_left.sum())
-        base[lung_right] = np.random.normal(2500, 200, size=lung_right.sum())
+        
+        num_left = np.sum(lung_left)
+        num_right = np.sum(lung_right)
+        if num_left > 0:
+            base[lung_left] = np.random.normal(2500, 200, size=num_left)
+        if num_right > 0:
+            base[lung_right] = np.random.normal(2500, 200, size=num_right)
         
         # Heart shadow (mediastinum)
         heart = ((x - (cx + cols * 0.05)) / (cols * 0.15))**2 + ((y - (cy + rows * 0.1)) / (rows * 0.2))**2 <= 1
-        base[heart] = np.random.normal(1500, 100, size=heart.sum())
+        num_heart = np.sum(heart)
+        if num_heart > 0:
+            base[heart] = np.random.normal(1500, 100, size=num_heart)
         
         # Ribs (curved lines)
         for i in range(6):
@@ -274,11 +283,15 @@ def generate_synthetic_pixel_data(modality: str, rows: int, cols: int, instance_
                     ry = rib_y + int(np.sin(rx / 50) * 10)
                     px = cx + side * rx
                     if 0 <= px < cols and 0 <= ry < rows:
-                        base[ry-2:ry+2, px-1:px+1] = np.random.randint(800, 1200)
+                        y_start, y_end = max(0, ry-2), min(rows, ry+2)
+                        x_start, x_end = max(0, px-1), min(cols, px+1)
+                        base[y_start:y_end, x_start:x_end] = np.random.randint(800, 1200)
         
         # Spine (central vertical structure)
-        spine_mask = (abs(x - cx) < cols * 0.03)
-        base[spine_mask] = np.random.normal(1000, 100, size=spine_mask.sum())
+        spine_mask = np.abs(x - cx) < cols * 0.03
+        num_spine = np.sum(spine_mask)
+        if num_spine > 0:
+            base[spine_mask] = np.random.normal(1000, 100, size=num_spine)
         
         pixel_data = base.clip(0, 4095).astype(np.uint16)
         
@@ -287,7 +300,7 @@ def generate_synthetic_pixel_data(modality: str, rows: int, cols: int, instance_
         base = np.random.exponential(400, (rows, cols)).astype(np.float32)
         
         # Fan/sector shape
-        cy, cx = 0, cols // 2
+        cx = cols // 2
         for row in range(rows):
             depth_factor = row / rows
             fan_half_width = int(cols * 0.15 + cols * 0.35 * depth_factor)
@@ -306,7 +319,6 @@ def generate_synthetic_pixel_data(modality: str, rows: int, cols: int, instance_
             sy = np.random.randint(rows // 4, 3 * rows // 4)
             sx = np.random.randint(cols // 3, 2 * cols // 3)
             sr = np.random.randint(10, 30)
-            y, x = np.ogrid[:rows, :cols]
             structure = (x - sx)**2 + (y - sy)**2 <= sr**2
             base[structure] = np.random.randint(600, 900)
         

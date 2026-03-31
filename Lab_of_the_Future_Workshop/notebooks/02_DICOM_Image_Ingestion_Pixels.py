@@ -3,35 +3,38 @@
 # MAGIC # Lab of the Future Workshop - Notebook 2
 # MAGIC ## DICOM Image Ingestion & Featurization with Databricks Pixels
 # MAGIC 
-# MAGIC This notebook demonstrates how to:
+# MAGIC This notebook demonstrates how to use the **[Databricks Pixels Solution Accelerator](https://github.com/databricks-industry-solutions/pixels)** to:
 # MAGIC - Ingest DICOM medical imaging data into Unity Catalog Volumes
-# MAGIC - Extract metadata and pixel data from DICOM files
-# MAGIC - Featurize images using the **Databricks Pixels Accelerator**
-# MAGIC - Store featurized data for downstream ML and analytics
+# MAGIC - Extract metadata from DICOM files at scale
+# MAGIC - Catalog and index medical images for SQL access
+# MAGIC - Apply metadata anonymization for PHI protection
 # MAGIC 
-# MAGIC ### Learning Objectives
-# MAGIC - Understand DICOM file structure and metadata
-# MAGIC - Configure Unity Catalog Volumes for medical image storage
-# MAGIC - Use Pixels accelerator for distributed image processing
-# MAGIC - Extract embeddings and features for ML models
+# MAGIC ### What is Pixels?
+# MAGIC Pixels is a Databricks Solution Accelerator that facilitates large-scale processing of medical images (DICOM, etc.).
+# MAGIC It provides:
+# MAGIC - ✅ DICOM metadata extraction and indexing
+# MAGIC - ✅ SQL-accessible image catalogs
+# MAGIC - ✅ PHI redaction via format-preserving encryption
+# MAGIC - ✅ OHIF Viewer integration for visualization
+# MAGIC - ✅ MONAI integration for AI segmentation
 # MAGIC 
 # MAGIC ### Architecture
 # MAGIC ```
-# MAGIC DICOM Sources → UC Volume (Raw) → Pixels Processing → Feature Tables (UC)
-# MAGIC                      ↓                    ↓                   ↓
-# MAGIC                 Raw Images         Metadata + Pixels    Embeddings + Features
+# MAGIC DICOM Sources → UC Volume → Pixels Catalog → Metadata Extraction → Delta Tables
+# MAGIC                    ↓              ↓                  ↓                   ↓
+# MAGIC              Raw Files      File Index       DICOM Metadata      SQL/ML Access
 # MAGIC ```
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Install Dependencies
+# MAGIC ## Install Pixels
 # MAGIC 
-# MAGIC Install the Databricks Pixels library and DICOM processing packages
+# MAGIC Install the Pixels package from PyPI or clone from GitHub
 
 # COMMAND ----------
 
-# MAGIC %pip install databricks-pixels pydicom pillow numpy opencv-python-headless
+# MAGIC %pip install dbx-pixels pydicom pillow numpy
 
 # COMMAND ----------
 
@@ -48,16 +51,15 @@ dbutils.library.restartPython()
 CATALOG = "lab_of_the_future"
 SCHEMA = "healthcare_data"
 
-# Volume paths for DICOM data
-DICOM_RAW_VOLUME = f"/Volumes/{CATALOG}/{SCHEMA}/dicom_raw"
+# Volume paths for DICOM data (using Unity Catalog Volumes)
+DICOM_VOLUME = f"/Volumes/{CATALOG}/{SCHEMA}/dicom_raw"
 DICOM_PROCESSED_VOLUME = f"/Volumes/{CATALOG}/{SCHEMA}/dicom_processed"
 
-# Tables for metadata and features
-DICOM_METADATA_TABLE = f"{CATALOG}.{SCHEMA}.dicom_metadata"
-DICOM_FEATURES_TABLE = f"{CATALOG}.{SCHEMA}.dicom_features"
+# Pixels catalog table
+PIXELS_CATALOG_TABLE = f"{CATALOG}.{SCHEMA}.dicom_object_catalog"
 
-print(f"Raw DICOM Volume: {DICOM_RAW_VOLUME}")
-print(f"Processed Volume: {DICOM_PROCESSED_VOLUME}")
+print(f"DICOM Volume: {DICOM_VOLUME}")
+print(f"Pixels Catalog Table: {PIXELS_CATALOG_TABLE}")
 
 # COMMAND ----------
 
@@ -75,486 +77,471 @@ print(f"Processed Volume: {DICOM_PROCESSED_VOLUME}")
 # MAGIC CREATE VOLUME IF NOT EXISTS lab_of_the_future.healthcare_data.dicom_raw
 # MAGIC COMMENT 'Raw DICOM medical imaging files from various modalities';
 # MAGIC 
-# MAGIC -- Create volume for processed images
+# MAGIC -- Create volume for processed/anonymized images
 # MAGIC CREATE VOLUME IF NOT EXISTS lab_of_the_future.healthcare_data.dicom_processed
-# MAGIC COMMENT 'Processed and normalized medical images';
+# MAGIC COMMENT 'Processed and anonymized medical images';
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Generate Sample DICOM-like Data
+# MAGIC ## Generate Sample DICOM Files
 # MAGIC 
-# MAGIC For demonstration, we'll generate synthetic medical image data that simulates DICOM files.
-# MAGIC In production, you would ingest real DICOM files from PACS systems or imaging devices.
+# MAGIC For demonstration, we'll generate synthetic DICOM files using pydicom.
+# MAGIC In production, you would ingest real DICOM files from PACS/VNA systems.
 
 # COMMAND ----------
 
+import pydicom
+from pydicom.dataset import Dataset, FileDataset
+from pydicom.uid import generate_uid, ExplicitVRLittleEndian
 import numpy as np
-from PIL import Image
-import io
-import json
 from datetime import datetime, timedelta
 import os
+import tempfile
 
-def generate_synthetic_medical_image(modality: str, width: int = 512, height: int = 512):
+def create_sample_dicom(
+    patient_id: str,
+    patient_name: str,
+    modality: str,
+    study_description: str,
+    series_description: str,
+    instance_number: int = 1,
+    image_size: tuple = (512, 512)
+):
     """
-    Generate a synthetic medical image for demonstration.
+    Create a sample DICOM file with synthetic image data.
     """
+    # Create file meta information
+    file_meta = Dataset()
+    file_meta.MediaStorageSOPClassUID = pydicom.uid.CTImageStorage
+    file_meta.MediaStorageSOPInstanceUID = generate_uid()
+    file_meta.TransferSyntaxUID = ExplicitVRLittleEndian
+    file_meta.ImplementationClassUID = generate_uid()
+    
+    # Create the FileDataset
+    ds = FileDataset(None, {}, file_meta=file_meta, preamble=b"\0" * 128)
+    
+    # Patient information
+    ds.PatientID = patient_id
+    ds.PatientName = patient_name
+    ds.PatientBirthDate = (datetime.now() - timedelta(days=365*np.random.randint(25, 75))).strftime("%Y%m%d")
+    ds.PatientSex = np.random.choice(["M", "F"])
+    
+    # Study information
+    ds.StudyInstanceUID = generate_uid()
+    ds.StudyDate = (datetime.now() - timedelta(days=np.random.randint(0, 365))).strftime("%Y%m%d")
+    ds.StudyTime = f"{np.random.randint(0, 23):02d}{np.random.randint(0, 59):02d}{np.random.randint(0, 59):02d}"
+    ds.StudyDescription = study_description
+    ds.AccessionNumber = f"ACC{np.random.randint(100000, 999999)}"
+    ds.ReferringPhysicianName = f"Dr. Smith-{np.random.randint(1, 20)}"
+    
+    # Series information
+    ds.SeriesInstanceUID = generate_uid()
+    ds.SeriesNumber = np.random.randint(1, 10)
+    ds.SeriesDescription = series_description
+    ds.Modality = modality
+    
+    # Instance information
+    ds.SOPClassUID = pydicom.uid.CTImageStorage
+    ds.SOPInstanceUID = generate_uid()
+    ds.InstanceNumber = instance_number
+    
+    # Equipment information
+    ds.Manufacturer = np.random.choice(["GE Healthcare", "Siemens", "Philips", "Canon"])
+    ds.InstitutionName = "Lab of the Future Medical Center"
+    ds.StationName = f"SCANNER-{np.random.randint(1, 5)}"
+    
+    # Image information
+    ds.Rows = image_size[0]
+    ds.Columns = image_size[1]
+    ds.BitsAllocated = 16
+    ds.BitsStored = 12
+    ds.HighBit = 11
+    ds.PixelRepresentation = 0
+    ds.SamplesPerPixel = 1
+    ds.PhotometricInterpretation = "MONOCHROME2"
+    
+    # Generate synthetic pixel data based on modality
     if modality == "CT":
-        # CT-like grayscale with tissue-like patterns
-        base = np.random.normal(128, 30, (height, width)).astype(np.uint8)
-        # Add circular structures (simulating organs/bones)
+        # CT-like data with Hounsfield units simulation
+        base = np.random.normal(40, 20, image_size).astype(np.int16)
+        # Add circular structures
         for _ in range(np.random.randint(2, 5)):
-            cx, cy = np.random.randint(100, width-100), np.random.randint(100, height-100)
-            r = np.random.randint(30, 80)
-            y, x = np.ogrid[:height, :width]
+            cx, cy = np.random.randint(100, image_size[0]-100, 2)
+            r = np.random.randint(20, 60)
+            y, x = np.ogrid[:image_size[0], :image_size[1]]
             mask = (x - cx)**2 + (y - cy)**2 <= r**2
-            base[mask] = np.clip(base[mask] + np.random.randint(30, 100), 0, 255)
-        return base
-    
-    elif modality == "MRI":
-        # MRI-like with different contrast
-        base = np.random.normal(100, 20, (height, width)).astype(np.uint8)
-        # Add brain-like elliptical structure
-        cy, cx = height // 2, width // 2
-        y, x = np.ogrid[:height, :width]
-        ellipse = ((x - cx) / 180)**2 + ((y - cy) / 220)**2 <= 1
-        base[ellipse] = np.clip(base[ellipse] + 80, 0, 255)
-        # Add ventricle-like dark regions
-        for _ in range(2):
-            vx = cx + np.random.randint(-50, 50)
-            vy = cy + np.random.randint(-30, 30)
-            vr = np.random.randint(15, 30)
-            vmask = (x - vx)**2 + (y - vy)**2 <= vr**2
-            base[vmask] = np.clip(base[vmask] - 60, 0, 255)
-        return base
-    
-    elif modality == "XR":
-        # X-ray like image
-        base = np.ones((height, width), dtype=np.uint8) * 200
-        # Add bone-like structures
-        for _ in range(np.random.randint(3, 7)):
-            x1, y1 = np.random.randint(50, width-50), np.random.randint(50, height-50)
-            x2, y2 = x1 + np.random.randint(-100, 100), y1 + np.random.randint(-100, 100)
-            thickness = np.random.randint(10, 30)
-            # Draw line-like structure
-            for t in np.linspace(0, 1, 100):
+            base[mask] += np.random.randint(100, 500)
+        ds.PixelData = (base + 1024).clip(0, 4095).astype(np.uint16).tobytes()
+        
+    elif modality == "MR":
+        # MRI-like data
+        base = np.random.normal(500, 100, image_size).astype(np.int16)
+        # Add brain-like ellipse
+        cy, cx = image_size[0] // 2, image_size[1] // 2
+        y, x = np.ogrid[:image_size[0], :image_size[1]]
+        ellipse = ((x - cx) / 150)**2 + ((y - cy) / 180)**2 <= 1
+        base[ellipse] += 300
+        ds.PixelData = base.clip(0, 4095).astype(np.uint16).tobytes()
+        
+    elif modality == "XR" or modality == "CR":
+        # X-ray like data
+        base = np.ones(image_size, dtype=np.int16) * 3000
+        # Add bone-like darker regions
+        for _ in range(np.random.randint(3, 8)):
+            x1 = np.random.randint(50, image_size[1]-50)
+            y1 = np.random.randint(50, image_size[0]-50)
+            x2 = x1 + np.random.randint(-80, 80)
+            y2 = y1 + np.random.randint(-80, 80)
+            thickness = np.random.randint(5, 20)
+            for t in np.linspace(0, 1, 50):
                 px, py = int(x1 + t * (x2 - x1)), int(y1 + t * (y2 - y1))
-                if 0 <= px < width and 0 <= py < height:
-                    y_idx, x_idx = np.ogrid[:height, :width]
-                    circle = (x_idx - px)**2 + (y_idx - py)**2 <= (thickness//2)**2
-                    base[circle] = np.clip(base[circle] - 100, 0, 255)
-        return base
-    
-    elif modality == "US":
-        # Ultrasound-like with speckle noise
-        base = np.random.exponential(50, (height, width)).astype(np.uint8)
+                if 0 <= px < image_size[1] and 0 <= py < image_size[0]:
+                    y_idx, x_idx = np.ogrid[:image_size[0], :image_size[1]]
+                    circle = (x_idx - px)**2 + (y_idx - py)**2 <= thickness**2
+                    base[circle] = base[circle] * 0.3
+        ds.PixelData = base.clip(0, 4095).astype(np.uint16).tobytes()
+        
+    else:  # US - Ultrasound
+        # Ultrasound-like speckle pattern
+        base = np.random.exponential(800, image_size).astype(np.int16)
         # Add fan shape
-        cy = 0
-        for y in range(height):
-            fan_width = int(width * 0.3 + (width * 0.7 * y / height))
-            x_start = (width - fan_width) // 2
+        for y in range(image_size[0]):
+            fan_width = int(image_size[1] * 0.3 + (image_size[1] * 0.6 * y / image_size[0]))
+            x_start = (image_size[1] - fan_width) // 2
             x_end = x_start + fan_width
             base[y, :x_start] = 0
             base[y, x_end:] = 0
-        # Add speckle
-        speckle = np.random.rayleigh(30, (height, width))
-        base = np.clip(base + speckle, 0, 255).astype(np.uint8)
-        return base
+        ds.PixelData = base.clip(0, 4095).astype(np.uint16).tobytes()
     
-    return np.random.randint(0, 255, (height, width), dtype=np.uint8)
-
-def generate_dicom_metadata(patient_id: str, study_id: str, modality: str, acquisition_time: datetime):
-    """
-    Generate DICOM-like metadata structure.
-    """
-    series_id = f"SE-{np.random.randint(100000, 999999)}"
-    instance_id = f"IN-{np.random.randint(100000, 999999)}"
+    # Additional required attributes
+    ds.ImagePositionPatient = [0, 0, instance_number * 2.5]
+    ds.ImageOrientationPatient = [1, 0, 0, 0, 1, 0]
+    ds.PixelSpacing = [0.5, 0.5]
+    ds.SliceThickness = 2.5
+    ds.SliceLocation = instance_number * 2.5
     
-    return {
-        "patient_id": patient_id,
-        "patient_name": f"Patient_{patient_id}",
-        "patient_birth_date": (datetime.now() - timedelta(days=365*np.random.randint(20, 80))).strftime("%Y%m%d"),
-        "patient_sex": np.random.choice(["M", "F"]),
-        "study_instance_uid": study_id,
-        "study_date": acquisition_time.strftime("%Y%m%d"),
-        "study_time": acquisition_time.strftime("%H%M%S"),
-        "study_description": f"{modality} Study",
-        "series_instance_uid": series_id,
-        "series_description": f"{modality} Series",
-        "series_number": np.random.randint(1, 10),
-        "modality": modality,
-        "sop_instance_uid": instance_id,
-        "instance_number": np.random.randint(1, 100),
-        "rows": 512,
-        "columns": 512,
-        "bits_allocated": 8,
-        "bits_stored": 8,
-        "pixel_spacing": [0.5, 0.5],
-        "slice_thickness": 2.5,
-        "manufacturer": np.random.choice(["GE Healthcare", "Siemens", "Philips", "Canon"]),
-        "institution_name": "Lab of the Future Medical Center",
-        "acquisition_datetime": acquisition_time.isoformat(),
-        "body_part_examined": np.random.choice(["HEAD", "CHEST", "ABDOMEN", "EXTREMITY"]),
-        "referring_physician": f"Dr. Smith-{np.random.randint(1, 20)}"
-    }
+    ds.is_little_endian = True
+    ds.is_implicit_VR = False
+    
+    return ds
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Generate and Store Sample Images
+# MAGIC ## Create Sample DICOM Dataset
 
 # COMMAND ----------
 
-# Generate sample medical images
-modalities = ["CT", "MRI", "XR", "US"]
-sample_images = []
-base_time = datetime.now()
+# Generate sample DICOM files
+modalities = ["CT", "MR", "XR", "US"]
+study_types = {
+    "CT": ["CT HEAD", "CT CHEST", "CT ABDOMEN", "CT SPINE"],
+    "MR": ["MRI BRAIN", "MRI SPINE", "MRI KNEE", "MRI SHOULDER"],
+    "XR": ["CHEST X-RAY", "HAND X-RAY", "SPINE X-RAY", "PELVIS X-RAY"],
+    "US": ["ABDOMINAL US", "CARDIAC US", "THYROID US", "PELVIC US"]
+}
 
-print("Generating sample medical images...")
+print("Generating sample DICOM files...")
+dicom_files = []
 
-for i in range(50):  # Generate 50 sample images
-    patient_id = f"PT-{10000 + (i % 20)}"  # 20 unique patients
-    study_id = f"ST-{np.random.randint(100000, 999999)}"
-    modality = np.random.choice(modalities)
-    acq_time = base_time - timedelta(days=np.random.randint(0, 90))
+# Generate 50 sample studies with multiple instances
+for i in range(20):  # 20 patients
+    patient_id = f"PT-{10000 + i}"
+    patient_name = f"Patient^Test^{i}"
     
-    # Generate image
-    pixel_array = generate_synthetic_medical_image(modality)
-    
-    # Generate metadata
-    metadata = generate_dicom_metadata(patient_id, study_id, modality, acq_time)
-    
-    sample_images.append({
-        "metadata": metadata,
-        "pixel_array": pixel_array
-    })
+    # Each patient has 1-3 studies
+    for study_num in range(np.random.randint(1, 4)):
+        modality = np.random.choice(modalities)
+        study_desc = np.random.choice(study_types[modality])
+        
+        # Each study has multiple instances (slices)
+        num_instances = np.random.randint(3, 10) if modality in ["CT", "MR"] else np.random.randint(1, 3)
+        
+        for instance in range(1, num_instances + 1):
+            ds = create_sample_dicom(
+                patient_id=patient_id,
+                patient_name=patient_name,
+                modality=modality,
+                study_description=study_desc,
+                series_description=f"{study_desc} Series",
+                instance_number=instance
+            )
+            dicom_files.append({
+                "dataset": ds,
+                "patient_id": patient_id,
+                "study_uid": ds.StudyInstanceUID,
+                "series_uid": ds.SeriesInstanceUID,
+                "sop_uid": ds.SOPInstanceUID,
+                "modality": modality
+            })
 
-print(f"Generated {len(sample_images)} sample images")
-print(f"Modality distribution: {dict(zip(*np.unique([img['metadata']['modality'] for img in sample_images], return_counts=True)))}")
+print(f"Generated {len(dicom_files)} DICOM instances")
+print(f"Modality distribution: {dict(zip(*np.unique([f['modality'] for f in dicom_files], return_counts=True)))}")
 
 # COMMAND ----------
 
-# Save images and metadata to volume
-from PIL import Image
-import json
+# MAGIC %md
+# MAGIC ## Save DICOM Files to Unity Catalog Volume
 
-for i, sample in enumerate(sample_images):
-    metadata = sample["metadata"]
-    pixel_array = sample["pixel_array"]
-    
-    # Create file paths
-    patient_folder = f"{DICOM_RAW_VOLUME}/{metadata['patient_id']}/{metadata['study_instance_uid']}"
-    image_filename = f"{metadata['sop_instance_uid']}.png"
-    metadata_filename = f"{metadata['sop_instance_uid']}.json"
-    
-    # Convert to PIL Image and save
-    img = Image.fromarray(pixel_array, mode='L')
-    
-    # Save image using dbutils
-    img_buffer = io.BytesIO()
-    img.save(img_buffer, format='PNG')
-    img_bytes = img_buffer.getvalue()
-    
-    # Write files to volume
-    dbutils.fs.mkdirs(patient_folder.replace("/Volumes/", "dbfs:/Volumes/"))
-    
-    with open(f"/dbfs{patient_folder}/{image_filename}", 'wb') as f:
-        f.write(img_bytes)
-    
-    with open(f"/dbfs{patient_folder}/{metadata_filename}", 'w') as f:
-        json.dump(metadata, f, indent=2)
+# COMMAND ----------
 
-print(f"Saved {len(sample_images)} images and metadata files to {DICOM_RAW_VOLUME}")
+# Save DICOM files to the volume
+for dcm_info in dicom_files:
+    ds = dcm_info["dataset"]
+    patient_id = dcm_info["patient_id"]
+    study_uid = dcm_info["study_uid"]
+    series_uid = dcm_info["series_uid"]
+    sop_uid = dcm_info["sop_uid"]
+    
+    # Create directory structure: /patient/study/series/
+    dir_path = f"/dbfs{DICOM_VOLUME}/{patient_id}/{study_uid[:20]}/{series_uid[:20]}"
+    os.makedirs(dir_path, exist_ok=True)
+    
+    # Save the DICOM file
+    file_path = f"{dir_path}/{sop_uid[:20]}.dcm"
+    ds.save_as(file_path)
+
+print(f"Saved {len(dicom_files)} DICOM files to {DICOM_VOLUME}")
 
 # COMMAND ----------
 
 # MAGIC %md
 # MAGIC ## Initialize Databricks Pixels
 # MAGIC 
-# MAGIC The Pixels accelerator provides distributed image processing capabilities optimized for medical imaging.
+# MAGIC Use the Pixels library to catalog and extract metadata from DICOM files.
 
 # COMMAND ----------
 
-from databricks.pixels import ImageSchema, read_image
-from pyspark.sql.functions import *
-from pyspark.sql.types import *
+from dbx.pixels import Catalog
+from dbx.pixels.dicom import DicomMetaExtractor
+
+# Initialize the Pixels Catalog
+catalog = Catalog(spark)
+
+print("Pixels Catalog initialized")
+print(f"Scanning volume: {DICOM_VOLUME}")
 
 # COMMAND ----------
 
 # MAGIC %md
 # MAGIC ## Catalog DICOM Files
 # MAGIC 
-# MAGIC Use Pixels to catalog all image files in the volume
+# MAGIC The Pixels `Catalog` object indexes all files in the specified path.
 
 # COMMAND ----------
 
-# Read all image files from the volume using Pixels
-image_catalog_df = (
-    spark.read
-    .format("binaryFile")
-    .option("pathGlobFilter", "*.png")
-    .option("recursiveFileLookup", "true")
-    .load(DICOM_RAW_VOLUME)
-)
+# Catalog all DICOM files in the volume
+# This creates an index of all files with their paths and basic metadata
+catalog_df = catalog.catalog(DICOM_VOLUME)
 
-# Extract path components for organization
-image_catalog_df = (
-    image_catalog_df
-    .withColumn("file_path", col("path"))
-    .withColumn("file_name", regexp_extract(col("path"), r"/([^/]+)\.png$", 1))
-    .withColumn("patient_id", regexp_extract(col("path"), r"/(PT-\d+)/", 1))
-    .withColumn("study_uid", regexp_extract(col("path"), r"/(ST-\d+)/", 1))
-    .withColumn("file_size_kb", round(col("length") / 1024, 2))
-    .withColumn("catalog_timestamp", current_timestamp())
-)
-
-display(image_catalog_df.select("file_path", "patient_id", "study_uid", "file_size_kb", "catalog_timestamp").limit(10))
+print(f"Cataloged files:")
+display(catalog_df.limit(10))
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Load and Parse DICOM Metadata
+# MAGIC ## Extract DICOM Metadata
 # MAGIC 
-# MAGIC Load the JSON metadata files alongside the images
+# MAGIC Use `DicomMetaExtractor` to parse and extract all DICOM tags from each file.
 
 # COMMAND ----------
 
-# Read metadata JSON files
-metadata_df = (
-    spark.read
-    .format("json")
-    .option("recursiveFileLookup", "true")
-    .load(f"{DICOM_RAW_VOLUME}/*/*.json")
-)
+# Extract DICOM metadata from all cataloged files
+# This parses each DICOM file and extracts all metadata tags
+meta_df = DicomMetaExtractor(catalog).transform(catalog_df)
 
-# Display metadata schema
-print("DICOM Metadata Schema:")
-metadata_df.printSchema()
-
-# COMMAND ----------
-
-# Store metadata in Unity Catalog table
-metadata_df.write.mode("overwrite").saveAsTable(DICOM_METADATA_TABLE)
-
-print(f"Metadata saved to {DICOM_METADATA_TABLE}")
-display(spark.sql(f"SELECT * FROM {DICOM_METADATA_TABLE} LIMIT 10"))
+print(f"Extracted metadata from {meta_df.count()} DICOM files")
+meta_df.printSchema()
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Image Featurization with Pixels
+# MAGIC ## Save Catalog to Delta Table
 # MAGIC 
-# MAGIC Extract features from medical images using the Pixels accelerator
+# MAGIC Save the extracted metadata to a Delta table for SQL access.
 
 # COMMAND ----------
 
-from pyspark.sql.functions import udf
-from pyspark.sql.types import ArrayType, FloatType, StructType, StructField
-import numpy as np
-from PIL import Image
-import io
+# Save the metadata catalog to Unity Catalog
+# This creates a Delta table with all DICOM metadata
+catalog.save(meta_df, path=PIXELS_CATALOG_TABLE)
 
-# Define feature extraction functions
-def extract_image_features(image_bytes):
-    """
-    Extract basic statistical and texture features from a medical image.
-    """
-    try:
-        # Load image
-        img = Image.open(io.BytesIO(image_bytes))
-        pixel_array = np.array(img)
-        
-        # Basic statistics
-        features = {
-            "mean_intensity": float(np.mean(pixel_array)),
-            "std_intensity": float(np.std(pixel_array)),
-            "min_intensity": float(np.min(pixel_array)),
-            "max_intensity": float(np.max(pixel_array)),
-            "median_intensity": float(np.median(pixel_array)),
-            "intensity_range": float(np.max(pixel_array) - np.min(pixel_array)),
-        }
-        
-        # Histogram features (10 bins)
-        hist, _ = np.histogram(pixel_array.flatten(), bins=10, range=(0, 255))
-        hist_normalized = hist / hist.sum()
-        features["histogram_entropy"] = float(-np.sum(hist_normalized * np.log2(hist_normalized + 1e-10)))
-        
-        # Texture features (simple gradient-based)
-        if len(pixel_array.shape) == 2:
-            gx = np.gradient(pixel_array.astype(float), axis=1)
-            gy = np.gradient(pixel_array.astype(float), axis=0)
-            gradient_magnitude = np.sqrt(gx**2 + gy**2)
-            features["gradient_mean"] = float(np.mean(gradient_magnitude))
-            features["gradient_std"] = float(np.std(gradient_magnitude))
-        else:
-            features["gradient_mean"] = 0.0
-            features["gradient_std"] = 0.0
-        
-        # Edge density (simple threshold on gradient)
-        edge_threshold = np.percentile(gradient_magnitude, 90)
-        edge_mask = gradient_magnitude > edge_threshold
-        features["edge_density"] = float(np.mean(edge_mask))
-        
-        # Quadrant analysis
-        h, w = pixel_array.shape[:2]
-        quadrants = [
-            pixel_array[:h//2, :w//2],
-            pixel_array[:h//2, w//2:],
-            pixel_array[h//2:, :w//2],
-            pixel_array[h//2:, w//2:]
-        ]
-        features["quadrant_variance"] = float(np.var([np.mean(q) for q in quadrants]))
-        
-        return features
-    except Exception as e:
-        return None
-
-# Register UDF
-feature_schema = StructType([
-    StructField("mean_intensity", FloatType()),
-    StructField("std_intensity", FloatType()),
-    StructField("min_intensity", FloatType()),
-    StructField("max_intensity", FloatType()),
-    StructField("median_intensity", FloatType()),
-    StructField("intensity_range", FloatType()),
-    StructField("histogram_entropy", FloatType()),
-    StructField("gradient_mean", FloatType()),
-    StructField("gradient_std", FloatType()),
-    StructField("edge_density", FloatType()),
-    StructField("quadrant_variance", FloatType())
-])
-
-extract_features_udf = udf(extract_image_features, feature_schema)
-
-# COMMAND ----------
-
-# Apply feature extraction to all images
-features_df = (
-    image_catalog_df
-    .withColumn("features", extract_features_udf(col("content")))
-    .select(
-        "file_path",
-        "patient_id",
-        "study_uid",
-        "file_name",
-        "file_size_kb",
-        "features.*",
-        "catalog_timestamp"
-    )
-    .filter(col("mean_intensity").isNotNull())
-)
-
-# Display feature results
-display(features_df.limit(10))
+print(f"Saved Pixels catalog to: {PIXELS_CATALOG_TABLE}")
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Store Features in Unity Catalog
-
-# COMMAND ----------
-
-# Save features to Unity Catalog table
-features_df.write.mode("overwrite").saveAsTable(DICOM_FEATURES_TABLE)
-
-print(f"Features saved to {DICOM_FEATURES_TABLE}")
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## Join Features with Metadata
+# MAGIC ## Query the DICOM Catalog with SQL
+# MAGIC 
+# MAGIC Once saved, you can use SQL to analyze your medical imaging data.
 
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC -- Create a comprehensive view joining features with metadata
-# MAGIC CREATE OR REPLACE VIEW lab_of_the_future.healthcare_data.dicom_complete AS
+# MAGIC -- View the cataloged DICOM metadata
 # MAGIC SELECT 
-# MAGIC   f.file_path,
-# MAGIC   f.patient_id,
-# MAGIC   f.study_uid,
-# MAGIC   m.modality,
-# MAGIC   m.body_part_examined,
-# MAGIC   m.study_description,
-# MAGIC   m.manufacturer,
-# MAGIC   m.acquisition_datetime,
-# MAGIC   f.mean_intensity,
-# MAGIC   f.std_intensity,
-# MAGIC   f.histogram_entropy,
-# MAGIC   f.gradient_mean,
-# MAGIC   f.gradient_std,
-# MAGIC   f.edge_density,
-# MAGIC   f.quadrant_variance,
-# MAGIC   f.file_size_kb,
-# MAGIC   f.catalog_timestamp
-# MAGIC FROM lab_of_the_future.healthcare_data.dicom_features f
-# MAGIC LEFT JOIN lab_of_the_future.healthcare_data.dicom_metadata m
-# MAGIC   ON f.file_name = m.sop_instance_uid;
+# MAGIC   path,
+# MAGIC   meta:PatientID::STRING as patient_id,
+# MAGIC   meta:PatientName::STRING as patient_name,
+# MAGIC   meta:Modality::STRING as modality,
+# MAGIC   meta:StudyDescription::STRING as study_description,
+# MAGIC   meta:SeriesDescription::STRING as series_description,
+# MAGIC   meta:Manufacturer::STRING as manufacturer,
+# MAGIC   meta:StudyDate::STRING as study_date,
+# MAGIC   meta:Rows::INT as rows,
+# MAGIC   meta:Columns::INT as columns
+# MAGIC FROM lab_of_the_future.healthcare_data.dicom_object_catalog
+# MAGIC LIMIT 20;
 
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC -- Explore the complete dataset
+# MAGIC -- Analyze imaging studies by modality
 # MAGIC SELECT 
-# MAGIC   modality,
-# MAGIC   COUNT(*) as image_count,
-# MAGIC   ROUND(AVG(mean_intensity), 2) as avg_intensity,
-# MAGIC   ROUND(AVG(histogram_entropy), 2) as avg_entropy,
-# MAGIC   ROUND(AVG(edge_density), 4) as avg_edge_density
-# MAGIC FROM lab_of_the_future.healthcare_data.dicom_complete
-# MAGIC GROUP BY modality
+# MAGIC   meta:Modality::STRING as modality,
+# MAGIC   COUNT(*) as instance_count,
+# MAGIC   COUNT(DISTINCT meta:PatientID::STRING) as unique_patients,
+# MAGIC   COUNT(DISTINCT meta:StudyInstanceUID::STRING) as unique_studies
+# MAGIC FROM lab_of_the_future.healthcare_data.dicom_object_catalog
+# MAGIC GROUP BY meta:Modality::STRING
+# MAGIC ORDER BY instance_count DESC;
+
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC -- Study volume by manufacturer
+# MAGIC SELECT 
+# MAGIC   meta:Manufacturer::STRING as manufacturer,
+# MAGIC   meta:Modality::STRING as modality,
+# MAGIC   COUNT(*) as image_count
+# MAGIC FROM lab_of_the_future.healthcare_data.dicom_object_catalog
+# MAGIC GROUP BY meta:Manufacturer::STRING, meta:Modality::STRING
 # MAGIC ORDER BY image_count DESC;
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Advanced: Generate Image Embeddings
+# MAGIC ## Incremental Processing with Auto Loader
 # MAGIC 
-# MAGIC For ML use cases, we can generate embedding vectors using pre-trained models
+# MAGIC For production workloads, use streaming/incremental processing to handle new files.
 
 # COMMAND ----------
 
-from pyspark.sql.functions import udf
-from pyspark.sql.types import ArrayType, FloatType
+# Example: Incremental processing with Auto Loader
+# This enables streaming ingestion of new DICOM files
 
-def generate_simple_embedding(image_bytes, embedding_dim=128):
-    """
-    Generate a simple embedding vector from image features.
-    In production, this would use a pre-trained model like ResNet or a medical imaging model.
-    """
-    try:
-        img = Image.open(io.BytesIO(image_bytes))
-        pixel_array = np.array(img).astype(float)
-        
-        # Resize to fixed size for consistent embedding
-        img_resized = img.resize((16, 16))
-        flat = np.array(img_resized).flatten()
-        
-        # Normalize and pad/truncate to embedding dimension
-        embedding = np.zeros(embedding_dim)
-        flat_normalized = (flat - flat.mean()) / (flat.std() + 1e-10)
-        embedding[:min(len(flat_normalized), embedding_dim)] = flat_normalized[:embedding_dim]
-        
-        return embedding.tolist()
-    except Exception:
-        return [0.0] * embedding_dim
+# checkpoint_path = f"/Volumes/{CATALOG}/{SCHEMA}/checkpoints/dicom_catalog"
+# 
+# catalog_df_streaming = catalog.catalog(
+#     DICOM_VOLUME, 
+#     streaming=True, 
+#     streamCheckpointBasePath=checkpoint_path
+# )
+# 
+# meta_df_streaming = DicomMetaExtractor(catalog).transform(catalog_df_streaming)
+# 
+# # Write as a streaming table
+# meta_df_streaming.writeStream \
+#     .format("delta") \
+#     .outputMode("append") \
+#     .option("checkpointLocation", f"{checkpoint_path}/meta") \
+#     .toTable(PIXELS_CATALOG_TABLE)
 
-embedding_udf = udf(generate_simple_embedding, ArrayType(FloatType()))
+print("Streaming example code provided (not executed)")
 
 # COMMAND ----------
 
-# Generate embeddings for all images
-embeddings_df = (
-    image_catalog_df
-    .withColumn("embedding", embedding_udf(col("content")))
-    .select("file_path", "patient_id", "study_uid", "file_name", "embedding")
-)
+# MAGIC %md
+# MAGIC ## Metadata Anonymization (PHI Protection)
+# MAGIC 
+# MAGIC Pixels supports format-preserving encryption for HIPAA compliance.
 
-# Save embeddings
-embeddings_df.write.mode("overwrite").saveAsTable(f"{CATALOG}.{SCHEMA}.dicom_embeddings")
+# COMMAND ----------
 
-print(f"Embeddings saved to {CATALOG}.{SCHEMA}.dicom_embeddings")
+# Example: Anonymize DICOM metadata for PHI protection
+# 
+# from dbx.pixels.dicom import DicomMetaAnonymizerExtractor
+# 
+# # Format-preserving encryption key (128, 192, or 256 bits - hex string)
+# fp_key = "2B7E151628AED2A6ABF7158809CF4F3C"  # Example - use secure key in production
+# fp_tweak = "A1B2C3D4E5F60718"  # 64-bit tweak
+# 
+# anonymized_df = DicomMetaAnonymizerExtractor(
+#     catalog,
+#     anonym_mode="METADATA",
+#     fp_key=fp_key,
+#     fp_tweak=fp_tweak,
+#     anonymization_base_path=DICOM_PROCESSED_VOLUME
+# ).transform(catalog_df)
+# 
+# catalog.save(anonymized_df, path=f"{CATALOG}.{SCHEMA}.dicom_anonymized_catalog")
+
+print("Anonymization example code provided (not executed)")
+print("In production, use secure keys stored in Databricks Secrets")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Create Feature Views for ML
+# MAGIC 
+# MAGIC Create views that extract features useful for machine learning.
+
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC -- Create a feature view for ML models
+# MAGIC CREATE OR REPLACE VIEW lab_of_the_future.healthcare_data.dicom_ml_features AS
+# MAGIC SELECT 
+# MAGIC   path,
+# MAGIC   meta:PatientID::STRING as patient_id,
+# MAGIC   meta:StudyInstanceUID::STRING as study_uid,
+# MAGIC   meta:SeriesInstanceUID::STRING as series_uid,
+# MAGIC   meta:SOPInstanceUID::STRING as sop_uid,
+# MAGIC   meta:Modality::STRING as modality,
+# MAGIC   meta:StudyDescription::STRING as study_description,
+# MAGIC   meta:BodyPartExamined::STRING as body_part,
+# MAGIC   meta:Rows::INT as image_rows,
+# MAGIC   meta:Columns::INT as image_cols,
+# MAGIC   meta:BitsAllocated::INT as bits_allocated,
+# MAGIC   meta:PixelSpacing::STRING as pixel_spacing,
+# MAGIC   meta:SliceThickness::DOUBLE as slice_thickness,
+# MAGIC   meta:Manufacturer::STRING as manufacturer,
+# MAGIC   meta:InstitutionName::STRING as institution,
+# MAGIC   -- Calculate derived features
+# MAGIC   meta:Rows::INT * meta:Columns::INT as total_pixels,
+# MAGIC   CASE 
+# MAGIC     WHEN meta:Modality::STRING = 'CT' THEN 'volumetric'
+# MAGIC     WHEN meta:Modality::STRING = 'MR' THEN 'volumetric'
+# MAGIC     ELSE 'planar'
+# MAGIC   END as image_type,
+# MAGIC   -- Timestamp for tracking
+# MAGIC   current_timestamp() as feature_extraction_time
+# MAGIC FROM lab_of_the_future.healthcare_data.dicom_object_catalog;
+
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC -- Preview the ML features view
+# MAGIC SELECT * FROM lab_of_the_future.healthcare_data.dicom_ml_features LIMIT 10;
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Integration with OHIF Viewer
+# MAGIC 
+# MAGIC Pixels includes a pre-built OHIF Viewer integration for visualizing DICOM images.
+# MAGIC 
+# MAGIC To use the OHIF Viewer:
+# MAGIC 1. Run the `06-OHIF-Viewer` notebook from the Pixels repository
+# MAGIC 2. Set the `table` parameter to your Pixels catalog table
+# MAGIC 3. Set the `sqlWarehouseID` to your SQL Warehouse ID
+# MAGIC 
+# MAGIC The viewer provides:
+# MAGIC - Interactive study list from your catalog
+# MAGIC - Multi-layer visualization for CT/MRI
+# MAGIC - Measurement and annotation tools
+# MAGIC - Segmentation export capabilities
 
 # COMMAND ----------
 
@@ -566,24 +553,29 @@ print(f"Embeddings saved to {CATALOG}.{SCHEMA}.dicom_embeddings")
 # MAGIC %sql
 # MAGIC -- Summary of ingested DICOM data
 # MAGIC SELECT 
-# MAGIC   'Total Images' as metric,
+# MAGIC   'Total DICOM Files' as metric,
 # MAGIC   CAST(COUNT(*) AS STRING) as value
-# MAGIC FROM lab_of_the_future.healthcare_data.dicom_features
+# MAGIC FROM lab_of_the_future.healthcare_data.dicom_object_catalog
 # MAGIC UNION ALL
 # MAGIC SELECT 
 # MAGIC   'Unique Patients',
-# MAGIC   CAST(COUNT(DISTINCT patient_id) AS STRING)
-# MAGIC FROM lab_of_the_future.healthcare_data.dicom_features
+# MAGIC   CAST(COUNT(DISTINCT meta:PatientID::STRING) AS STRING)
+# MAGIC FROM lab_of_the_future.healthcare_data.dicom_object_catalog
 # MAGIC UNION ALL
 # MAGIC SELECT 
 # MAGIC   'Unique Studies',
-# MAGIC   CAST(COUNT(DISTINCT study_uid) AS STRING)
-# MAGIC FROM lab_of_the_future.healthcare_data.dicom_features
+# MAGIC   CAST(COUNT(DISTINCT meta:StudyInstanceUID::STRING) AS STRING)
+# MAGIC FROM lab_of_the_future.healthcare_data.dicom_object_catalog
 # MAGIC UNION ALL
-# MAGIC SELECT
-# MAGIC   'Total Size (MB)',
-# MAGIC   CAST(ROUND(SUM(file_size_kb) / 1024, 2) AS STRING)
-# MAGIC FROM lab_of_the_future.healthcare_data.dicom_features;
+# MAGIC SELECT 
+# MAGIC   'Unique Series',
+# MAGIC   CAST(COUNT(DISTINCT meta:SeriesInstanceUID::STRING) AS STRING)
+# MAGIC FROM lab_of_the_future.healthcare_data.dicom_object_catalog
+# MAGIC UNION ALL
+# MAGIC SELECT 
+# MAGIC   'Modalities',
+# MAGIC   CAST(COUNT(DISTINCT meta:Modality::STRING) AS STRING)
+# MAGIC FROM lab_of_the_future.healthcare_data.dicom_object_catalog;
 
 # COMMAND ----------
 
@@ -594,4 +586,11 @@ print(f"Embeddings saved to {CATALOG}.{SCHEMA}.dicom_embeddings")
 # MAGIC - Build a surgery room digital twin prototype
 # MAGIC - Combine EKG data from Notebook 1 with DICOM images
 # MAGIC - Integrate real-time video data from operating rooms
-# MAGIC - Visualize multi-modal healthcare data in a unified dashboard
+# MAGIC - Visualize multi-modal healthcare data
+# MAGIC 
+# MAGIC ### Additional Resources
+# MAGIC 
+# MAGIC - [Pixels GitHub Repository](https://github.com/databricks-industry-solutions/pixels)
+# MAGIC - [OHIF Viewer Documentation](https://docs.ohif.org/)
+# MAGIC - [MONAI Medical AI Framework](https://monai.io/)
+# MAGIC - [pydicom Documentation](https://pydicom.github.io/)

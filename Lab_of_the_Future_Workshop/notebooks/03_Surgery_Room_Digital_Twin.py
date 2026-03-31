@@ -51,7 +51,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install plotly opencv-python-headless pillow
+# MAGIC %pip install opencv-python-headless pillow
 
 # COMMAND ----------
 

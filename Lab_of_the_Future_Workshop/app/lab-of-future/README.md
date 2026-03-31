@@ -19,10 +19,12 @@ A Databricks App for monitoring healthcare digital twin data including EKG vital
 
 ```
 lab-of-future/
-├── app.yaml                    # App configuration
+├── app.yaml                    # App configuration (command to run)
 ├── package.json                # Node.js dependencies
 ├── tsconfig.json               # TypeScript configuration
 ├── vite.config.ts              # Vite build configuration
+├── server/
+│   └── index.ts                # Backend entry point (AppKit server)
 ├── config/
 │   └── queries/                # SQL queries for analytics
 │       ├── patientSummary.sql
@@ -42,12 +44,14 @@ lab-of-future/
 
 ### 1. Configure Warehouse ID
 
-Edit `app.yaml` and replace `${DATABRICKS_WAREHOUSE_ID}` with your SQL Warehouse ID, or set it as an environment variable.
-
-To find your warehouse ID:
+The app requires the `DATABRICKS_WAREHOUSE_ID` environment variable. Find your warehouse ID:
 ```bash
 databricks sql warehouses list --profile <your-profile>
+# or
+databricks experimental aitools tools get-default-warehouse --profile <your-profile>
 ```
+
+Set it when deploying or in your Databricks Apps configuration.
 
 ### 2. Install Dependencies
 

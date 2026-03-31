@@ -1,18 +1,8 @@
-name: lab-of-future
-description: Lab of the Future Healthcare Dashboard - Digital Twin Monitoring System
+command:
+  - npm
+  - run
+  - start
 
-features:
-  - analytics
-
-analytics:
-  warehouse_id: ${DATABRICKS_WAREHOUSE_ID}
-  queries_path: config/queries
-
-client:
-  path: client
-  build_command: npm run build
-  output_path: client/dist
-
-resources:
-  cpu: 1
-  memory: 2Gi
+env:
+  - name: DATABRICKS_WAREHOUSE_ID
+    description: SQL Warehouse ID for analytics queries

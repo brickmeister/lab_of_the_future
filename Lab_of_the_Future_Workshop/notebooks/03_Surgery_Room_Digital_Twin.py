@@ -57,7 +57,6 @@ DIGITAL_TWIN_SCHEMA = "digital_twin"
 
 # Source tables from previous notebooks
 EKG_TABLE = f"{CATALOG}.{SCHEMA}.ekg_silver"
-DICOM_FEATURES_TABLE = f"{CATALOG}.{SCHEMA}.dicom_features"
 DICOM_METADATA_TABLE = f"{CATALOG}.{SCHEMA}.dicom_metadata"
 
 # Digital twin tables
@@ -585,15 +584,10 @@ print(f"Generated {len(video_records)} video records")
 # MAGIC   m.series_description,
 # MAGIC   m.body_part_examined,
 # MAGIC   m.acquisition_datetime,
-# MAGIC   f.mean_intensity,
-# MAGIC   f.histogram_entropy,
-# MAGIC   f.edge_density,
-# MAGIC   f.file_path
+# MAGIC   m.file_path
 # MAGIC FROM lab_of_the_future.digital_twin.surgery_sessions s
 # MAGIC INNER JOIN lab_of_the_future.healthcare_data.dicom_metadata m
 # MAGIC   ON s.patient_id = m.patient_id
-# MAGIC LEFT JOIN lab_of_the_future.healthcare_data.dicom_features f
-# MAGIC   ON m.sop_instance_uid = f.file_name
 # MAGIC ORDER BY s.session_id, m.acquisition_datetime;
 
 # COMMAND ----------

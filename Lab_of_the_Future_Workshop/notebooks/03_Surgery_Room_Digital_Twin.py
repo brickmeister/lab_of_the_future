@@ -581,14 +581,13 @@ print(f"Generated {len(video_records)} video records")
 # MAGIC   s.procedure_type,
 # MAGIC   m.modality,
 # MAGIC   m.study_instance_uid,
-# MAGIC   m.series_description,
-# MAGIC   m.body_part_examined,
-# MAGIC   m.acquisition_datetime,
+# MAGIC   m.study_description,
+# MAGIC   m.study_date,
 # MAGIC   m.file_path
 # MAGIC FROM lab_of_the_future.digital_twin.surgery_sessions s
 # MAGIC INNER JOIN lab_of_the_future.healthcare_data.dicom_metadata m
 # MAGIC   ON s.patient_id = m.patient_id
-# MAGIC ORDER BY s.session_id, m.acquisition_datetime;
+# MAGIC ORDER BY s.session_id, m.study_date;
 
 # COMMAND ----------
 

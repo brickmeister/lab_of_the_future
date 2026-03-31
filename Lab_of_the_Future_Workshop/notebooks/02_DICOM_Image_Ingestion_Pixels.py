@@ -24,17 +24,47 @@
 # MAGIC                    ↓              ↓                  ↓                   ↓
 # MAGIC              Raw Files      File Index       DICOM Metadata      SQL/ML Access
 # MAGIC ```
+# MAGIC 
+# MAGIC ### Prerequisites
+# MAGIC - **Cluster**: DBR 14.3 LTS or later (or Serverless Compute)
+# MAGIC - **Pixels Repo**: Clone https://github.com/databricks-industry-solutions/pixels to your workspace
+# MAGIC - Run `config/setup.py` from the Pixels repo before using this notebook
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Install Pixels
+# MAGIC ## Prerequisites: Install Pixels Solution Accelerator
 # MAGIC 
-# MAGIC Install the Pixels package from PyPI or clone from GitHub
+# MAGIC Pixels must be installed from the GitHub repository, not PyPI.
+# MAGIC 
+# MAGIC ### Setup Instructions:
+# MAGIC 1. Clone the Pixels repo into your Databricks workspace:
+# MAGIC    ```
+# MAGIC    Workspace > Repos > Add Repo > https://github.com/databricks-industry-solutions/pixels
+# MAGIC    ```
+# MAGIC 2. Use a cluster with **DBR 14.3 LTS** or later (or Serverless Compute)
+# MAGIC 3. Run the `config/setup.py` notebook from the Pixels repo to install the package
 
 # COMMAND ----------
 
-# MAGIC %pip install dbx-pixels pydicom pillow numpy
+# MAGIC %md
+# MAGIC ### Run Pixels Setup
+# MAGIC 
+# MAGIC Execute the setup script from the cloned Pixels repository.
+# MAGIC 
+# MAGIC **IMPORTANT**: Adjust the path below to match where you cloned the Pixels repo in your workspace.
+# MAGIC Common paths:
+# MAGIC - `/Workspace/Repos/<username>/pixels`
+# MAGIC - `/Workspace/Repos/pixels`
+# MAGIC - `/Workspace/Users/<email>/pixels`
+
+# COMMAND ----------
+
+# MAGIC %run /Workspace/Repos/pixels/config/setup
+
+# COMMAND ----------
+
+# MAGIC %pip install pydicom pillow numpy --quiet
 
 # COMMAND ----------
 

@@ -47,19 +47,6 @@
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Install Dependencies
-
-# COMMAND ----------
-
-# MAGIC %pip install opencv-python-headless pillow
-
-# COMMAND ----------
-
-dbutils.library.restartPython()
-
-# COMMAND ----------
-
-# MAGIC %md
 # MAGIC ## Configuration
 
 # COMMAND ----------

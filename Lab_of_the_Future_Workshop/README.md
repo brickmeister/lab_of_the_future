@@ -29,14 +29,23 @@ Learn how to:
 - Build bronze/silver/gold medallion architecture
 - Store processed data in Unity Catalog
 
-### Notebook 2: DICOM Image Ingestion & Featurization
-**File**: `notebooks/02_DICOM_Image_Ingestion_Pixels.py`
+### Notebook 2a: DICOM Image Data Generation
+**File**: `notebooks/02a_DICOM_Image_Data_Generation.py`
 
 Learn how to:
-- Ingest DICOM medical imaging data into Unity Catalog Volumes
-- Extract metadata from medical images
-- Use Databricks Pixels accelerator for image featurization
-- Generate embeddings for ML models
+- Generate synthetic DICOM medical imaging data
+- Create realistic metadata for CT, MR, XR, and US modalities
+- Store DICOM files in Unity Catalog Volumes with proper hierarchy
+- Track file metadata in Delta tables
+
+### Notebook 2b: DICOM Processing with Pixels (Optional)
+**File**: `notebooks/02b_DICOM_Processing_Pixels.py`
+
+Learn how to:
+- Use the [Databricks Pixels Solution Accelerator](https://github.com/databricks-industry-solutions/pixels)
+- Catalog and index DICOM files at scale
+- Extract DICOM metadata with SQL access
+- Apply PHI anonymization for HIPAA compliance
 
 ### Notebook 3: Surgery Room Digital Twin
 **File**: `notebooks/03_Surgery_Room_Digital_Twin.py`

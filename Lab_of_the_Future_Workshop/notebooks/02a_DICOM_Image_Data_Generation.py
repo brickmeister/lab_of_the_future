@@ -611,8 +611,9 @@ for file_info in generated_files:
     series_uid = file_info["series_uid"][:16]
     sop_uid = file_info["sop_uid"][:16]
     
-    # Create directory hierarchy
-    dir_path = f"/dbfs{DICOM_VOLUME}/{patient_id}/{study_uid}/{series_uid}"
+    # Create directory hierarchy using Unity Catalog Volume path
+    # UC Volumes use /Volumes/ path directly (not /dbfs/)
+    dir_path = f"{DICOM_VOLUME}/{patient_id}/{study_uid}/{series_uid}"
     
     try:
         os.makedirs(dir_path, exist_ok=True)

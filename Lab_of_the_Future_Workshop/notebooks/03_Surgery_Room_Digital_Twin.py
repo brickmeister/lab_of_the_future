@@ -96,6 +96,7 @@ print(f"Digital Twin Schema: {CATALOG}.{DIGITAL_TWIN_SCHEMA}")
 from pyspark.sql.types import *
 from pyspark.sql.functions import *
 from datetime import datetime, timedelta
+import builtins
 import numpy as np
 import json
 
@@ -369,7 +370,7 @@ for session in surgery_sessions:
         current_time = start_time
         while current_time <= end_time:
             # Vary patient status during surgery
-            elapsed_pct = (current_time - start_time).total_seconds() / max(1, (end_time - start_time).total_seconds())
+            elapsed_pct = (current_time - start_time).total_seconds() / builtins.max(1, (end_time - start_time).total_seconds())
             
             # Simulate typical surgery phases
             if elapsed_pct < 0.1:  # Induction

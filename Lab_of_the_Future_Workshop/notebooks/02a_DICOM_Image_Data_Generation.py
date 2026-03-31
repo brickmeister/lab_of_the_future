@@ -645,27 +645,43 @@ if save_errors:
 from pyspark.sql.types import StructType, StructField, StringType, IntegerType, TimestampType
 from pyspark.sql.functions import current_timestamp, to_date, to_timestamp
 
+# Define explicit schema for the metadata table
+metadata_schema = StructType([
+    StructField("file_path", StringType(), True),
+    StructField("patient_id", StringType(), True),
+    StructField("patient_name", StringType(), True),
+    StructField("patient_sex", StringType(), True),
+    StructField("modality", StringType(), True),
+    StructField("study_instance_uid", StringType(), True),
+    StructField("study_date", StringType(), True),
+    StructField("study_description", StringType(), True),
+    StructField("series_instance_uid", StringType(), True),
+    StructField("sop_instance_uid", StringType(), True),
+    StructField("instance_number", IntegerType(), True),
+    StructField("manufacturer", StringType(), True)
+])
+
 # Create metadata records
 metadata_records = []
 for f in generated_files:
     if "file_path" in f:  # Only include successfully saved files
         metadata_records.append({
-            "file_path": f["file_path"],
-            "patient_id": f["patient_id"],
-            "patient_name": f["patient_name"],
-            "patient_sex": f["patient_sex"],
-            "modality": f["modality"],
-            "study_instance_uid": f["study_uid"],
-            "study_date": f["study_date"],
-            "study_description": f["study_description"],
-            "series_instance_uid": f["series_uid"],
-            "sop_instance_uid": f["sop_uid"],
-            "instance_number": f["instance_number"],
-            "manufacturer": f["manufacturer"]
+            "file_path": str(f["file_path"]),
+            "patient_id": str(f["patient_id"]),
+            "patient_name": str(f["patient_name"]),
+            "patient_sex": str(f["patient_sex"]),
+            "modality": str(f["modality"]),
+            "study_instance_uid": str(f["study_uid"]),
+            "study_date": str(f["study_date"]),
+            "study_description": str(f["study_description"]),
+            "series_instance_uid": str(f["series_uid"]),
+            "sop_instance_uid": str(f["sop_uid"]),
+            "instance_number": int(f["instance_number"]),
+            "manufacturer": str(f["manufacturer"])
         })
 
-# Create DataFrame
-metadata_df = spark.createDataFrame(metadata_records)
+# Create DataFrame with explicit schema
+metadata_df = spark.createDataFrame(metadata_records, schema=metadata_schema)
 
 # Add ingestion timestamp
 metadata_df = metadata_df.withColumn("ingestion_timestamp", current_timestamp())

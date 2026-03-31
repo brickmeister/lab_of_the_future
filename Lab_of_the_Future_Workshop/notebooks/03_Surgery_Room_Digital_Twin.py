@@ -344,14 +344,14 @@ def generate_room_state(room_id, session_id, timestamp, patient_status_base="sta
         "session_id": session_id,
         "timestamp": timestamp,
         "patient_heart_rate": hr,
-        "patient_heart_rate_variability": round(hrv, 2),
+        "patient_heart_rate_variability": builtins.round(hrv, 2),
         "patient_status": patient_status,
         "active_imaging_modality": random.choice([None, "X-Ray", "Ultrasound", "Fluoroscopy"]),
         "images_taken": random.randint(0, 20),
         "video_feed_active": random.choice([True, True, True, False]),
         "personnel_count": random.randint(3, 8),
-        "room_temperature_c": round(random.uniform(18, 22), 1),
-        "room_humidity_pct": round(random.uniform(40, 60), 1),
+        "room_temperature_c": builtins.round(random.uniform(18, 22), 1),
+        "room_humidity_pct": builtins.round(random.uniform(40, 60), 1),
         "equipment_status": equipment_status,
         "alerts_active": alerts
     }
@@ -463,7 +463,7 @@ for session in surgery_sessions:
                 "resolution": "1920x1080",
                 "fps": 30,
                 "file_path": f"/Volumes/{CATALOG}/{DIGITAL_TWIN_SCHEMA}/video_recordings/{session['session_id']}/{camera_id}.mp4" if duration else None,
-                "file_size_mb": round(file_size, 2) if file_size else None,
+                "file_size_mb": builtins.round(file_size, 2) if file_size else None,
                 "status": "completed" if session["actual_end"] else "recording",
                 "ai_analysis_complete": random.choice([True, False]) if session["actual_end"] else False,
                 "detected_events": detected_events

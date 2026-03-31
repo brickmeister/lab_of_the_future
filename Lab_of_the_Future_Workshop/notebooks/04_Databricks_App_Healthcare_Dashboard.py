@@ -40,15 +40,12 @@
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC -- Verify EKG data
+# MAGIC -- Verify data sources
 # MAGIC SELECT 'EKG Silver' as source, COUNT(*) as records 
 # MAGIC FROM lab_of_the_future.healthcare_data.ekg_silver
 # MAGIC UNION ALL
 # MAGIC SELECT 'DICOM Metadata', COUNT(*) 
 # MAGIC FROM lab_of_the_future.healthcare_data.dicom_metadata
-# MAGIC UNION ALL
-# MAGIC SELECT 'DICOM Features', COUNT(*) 
-# MAGIC FROM lab_of_the_future.healthcare_data.dicom_features
 # MAGIC UNION ALL
 # MAGIC SELECT 'Surgery Sessions', COUNT(*) 
 # MAGIC FROM lab_of_the_future.digital_twin.surgery_sessions
@@ -303,20 +300,15 @@
 # MAGIC -- Imaging history for a specific patient
 # MAGIC -- Parameters: :patient_id
 # MAGIC SELECT 
-# MAGIC   m.study_instance_uid,
-# MAGIC   m.modality,
-# MAGIC   m.study_description,
-# MAGIC   m.body_part_examined,
-# MAGIC   m.acquisition_datetime,
-# MAGIC   m.manufacturer,
-# MAGIC   f.mean_intensity,
-# MAGIC   f.histogram_entropy,
-# MAGIC   f.file_path
-# MAGIC FROM lab_of_the_future.healthcare_data.dicom_metadata m
-# MAGIC LEFT JOIN lab_of_the_future.healthcare_data.dicom_features f
-# MAGIC   ON m.sop_instance_uid = f.file_name
-# MAGIC WHERE m.patient_id = :patient_id
-# MAGIC ORDER BY m.acquisition_datetime DESC
+# MAGIC   study_instance_uid,
+# MAGIC   modality,
+# MAGIC   study_description,
+# MAGIC   study_date,
+# MAGIC   manufacturer,
+# MAGIC   file_path
+# MAGIC FROM lab_of_the_future.healthcare_data.dicom_metadata
+# MAGIC WHERE patient_id = :patient_id
+# MAGIC ORDER BY study_date DESC
 # MAGIC ```
 
 # COMMAND ----------
